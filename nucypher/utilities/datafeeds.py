@@ -99,13 +99,27 @@ class UpvestGasPriceDatafeed(EthereumGasPriceDatafeed):
         self.gas_prices = {k: int(Web3.toWei(v, 'gwei')) for k, v in self._raw_data['estimates'].items()}
 
 
+class GasnowGasPriceDatafeed(EthereumGasPriceDatafeed):
+    """Gas price datafeed from Gasnow"""
+
+    name = "Gasnow datafeed"
+    api_url = "https://www.gasnow.org/api/v3/gas/price?utm_source=web"
+    _speed_names = ('rapid', 'standard', 'fast', 'slow')
+    _default_speed = 'fast'
+
+    def _parse_gas_prices(self):
+        self._probe_feed()
+        self.gas_prices = {k: int(v) for k, v in self._raw_data['data'].items() if k in self._speed_names}
+
+
 def datafeed_fallback_gas_price_strategy(web3: Web3, transaction_params: TxParams = None) -> Wei:
-    feeds = (EtherchainGasPriceDatafeed, UpvestGasPriceDatafeed)
+    feeds = (GasnowGasPriceDatafeed, EtherchainGasPriceDatafeed, UpvestGasPriceDatafeed)
 
     for gas_price_feed_class in feeds:
         try:
             gas_strategy = gas_price_feed_class.construct_gas_strategy()
             gas_price = gas_strategy(web3, transaction_params)
+            gas_price = Wei(min(int(gas_price), Web3.toWei(100, 'gwei')))
         except Datafeed.DatafeedError:
             continue
         else:
