@@ -282,10 +282,11 @@ class BlockchainInterface:
         # Gas Price Strategy:
         # Bundled web3 strategies are too expensive for Infura (it takes ~1 minute to get a price),
         # so we use external gas price oracles, instead (see #2139)
-        if isinstance(self.client, InfuraClient):
-            gas_strategy = datafeed_fallback_gas_price_strategy
-        else:
-            gas_strategy = self.gas_strategy
+        # if isinstance(self.client, InfuraClient):
+        #     gas_strategy = datafeed_fallback_gas_price_strategy
+        # else:
+        #     gas_strategy = self.gas_strategy
+        gas_strategy = datafeed_fallback_gas_price_strategy
         self.client.set_gas_strategy(gas_strategy=gas_strategy)
         gwei_gas_price = Web3.fromWei(self.client.gas_price_for_transaction(), 'gwei')
         self.log.debug(f"Currently, our gas strategy returns a gas price of {gwei_gas_price} gwei")
