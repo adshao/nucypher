@@ -489,10 +489,10 @@ class BlockchainInterface:
                       sender_address: str,
                       payload: dict = None,
                       transaction_gas_limit: int = None,
-                      ) -> dict:
+                      nonce: Optional[int] = None) -> dict:
 
         base_payload = {'chainId': int(self.client.chain_id),
-                        'nonce': self.client.w3.eth.getTransactionCount(sender_address, 'pending'),
+                        'nonce': nonce or self.client.w3.eth.getTransactionCount(sender_address, 'pending'),
                         'from': sender_address}
 
         # Aggregate
@@ -511,7 +511,7 @@ class BlockchainInterface:
                                    payload: dict = None,
                                    transaction_gas_limit: Optional[int] = None,
                                    gas_estimation_multiplier: Optional[float] = None,
-                                   ) -> dict:
+                                   nonce: Optional[int] = None) -> dict:
 
         # Sanity checks for the gas estimation multiplier
         if gas_estimation_multiplier is not None:
@@ -523,7 +523,8 @@ class BlockchainInterface:
 
         payload = self.build_payload(sender_address=sender_address,
                                      payload=payload,
-                                     transaction_gas_limit=transaction_gas_limit)
+                                     transaction_gas_limit=transaction_gas_limit,
+                                     nonce=nonce)
         self.__log_transaction(transaction_dict=payload, contract_function=contract_function)
         try:
             transaction_dict = contract_function.buildTransaction(payload)  # Gas estimation occurs here
@@ -649,8 +650,8 @@ class BlockchainInterface:
                          transaction_gas_limit: Optional[int] = None,
                          gas_estimation_multiplier: Optional[float] = None,
                          confirmations: int = 0,
-                         fire_and_forget: bool = False  # do not wait for receipt.
-                         ) -> dict:
+                         fire_and_forget: bool = False,  # do not wait for receipt.
+                         nonce: Optional[int] = None) -> dict:
 
         if fire_and_forget and confirmations > 0:
             raise ValueError('Transaction Prevented: Cannot use confirmations and fire_and_forget options together.')
@@ -659,7 +660,8 @@ class BlockchainInterface:
                                                       sender_address=sender_address,
                                                       payload=payload,
                                                       transaction_gas_limit=transaction_gas_limit,
-                                                      gas_estimation_multiplier=gas_estimation_multiplier)
+                                                      gas_estimation_multiplier=gas_estimation_multiplier,
+                                                      nonce=nonce)
 
         # Get transaction name
         try:

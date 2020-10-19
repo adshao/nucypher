@@ -15,6 +15,10 @@ You should have received a copy of the GNU Affero General Public License
 along with nucypher.  If not, see <https://www.gnu.org/licenses/>.
 """
 import random
+from os import path
+import json
+from web3.exceptions import TransactionNotFound
+
 from _pydecimal import Decimal
 from collections import UserList
 from enum import Enum
@@ -24,7 +28,7 @@ from constant_sorrow.constants import (EMPTY_STAKING_SLOT, NEW_STAKE, NOT_STAKIN
                                        UNKNOWN_WORKER_STATUS)
 from eth_utils import currency, is_checksum_address
 from twisted.internet import reactor, task
-from typing import Callable, Dict, Union
+from typing import Callable, Dict, Union, Optional
 
 from nucypher.blockchain.eth.agents import ContractAgency, StakingEscrowAgent
 from nucypher.blockchain.eth.decorators import validate_checksum_address
@@ -526,8 +530,7 @@ def validate_increase(stake: Stake, amount: NU) -> None:
 class WorkTracker:
 
     CLOCK = reactor
-    # INTERVAL_FLOOR = 60 * 15  # fifteen minutes
-    INTERVAL_FLOOR = 60 * 120  # two hours
+    INTERVAL_FLOOR = 60 * 15  # fifteen minutes
     INTERVAL_CEIL = 60 * 180  # three hours
 
     def __init__(self, worker, *args, **kwargs):
@@ -642,7 +645,33 @@ class WorkTracker:
         self.log.info("Made a commitment to period {}".format(self.current_period))
         transacting_power = self.worker.transacting_power
         with transacting_power:
-            self.worker.commit_to_next_period(fire_and_forget=True)  # < --- blockchain WRITE | Do not wait for receipt
+            f_name = '/root/.local/share/nucypher/commit_to_next_period.txt'
+            if path.exists(f_name):
+                self.log.info("Check tx from local file")
+                tx_hash = None
+                nonce = None
+                with open(f_name) as f:
+                    o = json.load(f)
+                    tx_hash = o['tx_hash']
+                    nonce = o['nonce']
+                self.log.info("tx hash: {}, nonce: {}".format(tx_hash, nonce))
+                try:
+                    self.staking_agent.blockchain.client.w3.eth.getTransaction(tx_hash)
+                    self.log.info('tx is OK')
+                    self._commit_to_next_period()
+                except TransactionNotFound:
+                    self.log.warn('tx {} is not mined, try to resend with nonce {}'.format(tx_hash, nonce))
+                    self._commit_to_next_period(nonce=nonce)
+            else:
+                self._commit_to_next_period()
+
+    def _commit_to_next_period(self, nonce: Optional[int] = None):
+        if nonce is None:
+            nonce = self.staking_agent.blockchain.client.w3.eth.getTransactionCount(self.worker.address, 'pending')
+        tx_hash = self.worker.commit_to_next_period(fire_and_forget=True, nonce=nonce)  # < --- blockchain WRITE | Do not wait for receipt
+
+        with open('/root/.local/share/nucypher/commit_to_next_period.txt', 'w') as f:
+            json.dump({'tx_hash': tx_hash.hex(), 'nonce': nonce, 'current_period': self.__current_period}, f)
 
 
 class StakeList(UserList):
