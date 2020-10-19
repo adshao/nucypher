@@ -526,7 +526,8 @@ def validate_increase(stake: Stake, amount: NU) -> None:
 class WorkTracker:
 
     CLOCK = reactor
-    INTERVAL_FLOOR = 60 * 15  # fifteen minutes
+    # INTERVAL_FLOOR = 60 * 15  # fifteen minutes
+    INTERVAL_FLOOR = 60 * 120  # two hours
     INTERVAL_CEIL = 60 * 180  # three hours
 
     def __init__(self, worker, *args, **kwargs):
