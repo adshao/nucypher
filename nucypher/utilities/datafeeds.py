@@ -99,5 +99,18 @@ class UpvestGasPriceDatafeed(EthereumGasPriceDatafeed):
         self.gas_prices = {k: int(Web3.toWei(v, 'gwei')) for k, v in self._raw_data['estimates'].items()}
 
 
+class GasnowGasPriceDatafeed(EthereumGasPriceDatafeed):
+    """Gas price datafeed from Gasnow"""
+
+    name = "Gasnow datafeed"
+    api_url = "https://www.gasnow.org/api/v3/gas/price?utm_source=web"
+    _speed_names = ('rapid', 'standard', 'fast', 'slow')
+    _default_speed = 'fast'
+
+    def _parse_gas_prices(self):
+        self._probe_feed()
+        self.gas_prices = {k: int(v) for k, v in self._raw_data['data'].items() if k in self._speed_names}
+
+
 # TODO: We can implement here other datafeeds, like the ETH/USD (e.g., https://api.coinmarketcap.com/v1/ticker/ethereum/)
 # suggested in a comment in nucypher.blockchain.eth.interfaces.BlockchainInterface#sign_and_broadcast_transaction
