@@ -17,6 +17,8 @@
 import datetime
 import functools
 from typing import Callable
+from os import path
+import json
 
 from web3 import Web3
 from web3.exceptions import ValidationError
@@ -40,11 +42,18 @@ class GasStrategyError(RuntimeError):
 def datafeed_fallback_gas_price_strategy(web3: Web3, transaction_params: TxParams = None) -> Wei:
     feeds = (GasnowGasPriceDatafeed, EtherchainGasPriceDatafeed, UpvestGasPriceDatafeed)
 
+    gas_file = '/root/.local/share/nucypher/gas.json'
+    max_gas_price = 30
+    if path.exists(gas_file):
+        with open(gas_file) as f:
+            o = json.load(f)
+            max_gas_price = o['max_gas_price']
+
     for gas_price_feed_class in feeds:
         try:
             gas_strategy = gas_price_feed_class.construct_gas_strategy()
             gas_price = gas_strategy(web3, transaction_params)
-            gas_price = Wei(min(int(gas_price), Web3.toWei(40, 'gwei')))
+            gas_price = Wei(min(int(gas_price), Web3.toWei(max_gas_price, 'gwei')))
         except Datafeed.DatafeedError:
             continue
         else:
