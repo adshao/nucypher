@@ -289,6 +289,7 @@ class BlockchainInterface:
         # else:
         #     gas_strategy = self.get_gas_strategy(self.gas_strategy)
         gas_strategy = datafeed_fallback_gas_price_strategy
+        self.gas_strategy = 'fast'  # FIXME
         self.client.set_gas_strategy(gas_strategy=gas_strategy)
         gwei_gas_price = Web3.fromWei(self.client.gas_price_for_transaction(), 'gwei')
         self.log.debug(f"Currently, our gas strategy returns a gas price of {gwei_gas_price} gwei")
