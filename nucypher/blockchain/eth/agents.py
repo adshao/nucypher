@@ -583,11 +583,11 @@ class StakingEscrowAgent(EthereumContractAgent):
         For each period that the worker makes a commitment, the staker is rewarded.
         """
         contract_function: ContractFunction = self.contract.functions.commitToNextPeriod()
-        receipt: TxReceipt = self.blockchain.send_transaction(contract_function=contract_function,
-                                                              sender_address=worker_address,
-                                                              gas_estimation_multiplier=2.5,  # TODO: Workaround for #2337
-                                                              fire_and_forget=fire_and_forget)
-        return receipt
+        txhash_or_receipt = self.blockchain.send_transaction(contract_function=contract_function,
+                                                             sender_address=worker_address,
+                                                             gas_estimation_multiplier=10, # TODO: Workaround for #2337
+                                                             fire_and_forget=fire_and_forget)
+        return txhash_or_receipt
 
     @contract_api(TRANSACTION)
     def mint(self, staker_address: ChecksumAddress) -> TxReceipt:
@@ -709,6 +709,13 @@ class StakingEscrowAgent(EthereumContractAgent):
         contract_function: ContractFunction = self.contract.functions.setSnapshots(activate)
         receipt = self.blockchain.send_transaction(contract_function=contract_function, sender_address=staker_address)
         # TODO: Handle SnapshotSet event (see #1193)
+        return receipt
+
+    @contract_api(TRANSACTION)
+    def remove_unused_stake(self, staker_address: ChecksumAddress, stake_index: int) -> TxReceipt:
+        contract_function: ContractFunction = self.contract.functions.removeUnusedSubStake(stake_index)
+        receipt: TxReceipt = self.blockchain.send_transaction(contract_function=contract_function,
+                                                              sender_address=staker_address)
         return receipt
 
     @contract_api(CONTRACT_CALL)

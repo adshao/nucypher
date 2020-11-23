@@ -80,7 +80,7 @@ class ProxyRESTServer:
 def make_rest_app(
         db_filepath: str,
         this_node,
-        serving_domain,
+        domain,
         log: Logger=Logger("http-application-layer")
         ) -> Tuple[Flask, Datastore]:
     """
@@ -97,12 +97,12 @@ def make_rest_app(
 
     log.info("Starting datastore {}".format(db_filepath))
     datastore = Datastore(db_filepath)
-    rest_app = _make_rest_app(weakref.proxy(datastore), weakref.proxy(this_node), serving_domain, log)
+    rest_app = _make_rest_app(weakref.proxy(datastore), weakref.proxy(this_node), domain, log)
 
     return rest_app, datastore
 
 
-def _make_rest_app(datastore: Datastore, this_node, serving_domain: str, log: Logger) -> Flask:
+def _make_rest_app(datastore: Datastore, this_node, domain: str, log: Logger) -> Flask:
 
     from nucypher.characters.lawful import Alice, Ursula
     _alice_class = Alice
@@ -184,7 +184,7 @@ def _make_rest_app(datastore: Datastore, this_node, serving_domain: str, log: Lo
         # If these nodes already have the same fleet state, no exchange is necessary.
         learner_fleet_state = request.args.get('fleet')
         if learner_fleet_state == this_node.known_nodes.checksum:
-            log.debug("Learner already knew fleet state {}; doing nothing.".format(learner_fleet_state))
+            # log.debug("Learner already knew fleet state {}; doing nothing.".format(learner_fleet_state))  # 1712
             headers = {'Content-Type': 'application/octet-stream'}
             payload = this_node.known_nodes.snapshot() + bytes(FLEET_STATES_MATCH)
             signature = this_node.stamp(payload)
@@ -436,7 +436,7 @@ def _make_rest_app(datastore: Datastore, this_node, serving_domain: str, log: Lo
                 content = status_template.render(this_node=this_node,
                                                  known_nodes=this_node.known_nodes,
                                                  previous_states=previous_states,
-                                                 domain=serving_domain,
+                                                 domain=domain,
                                                  version=nucypher.__version__,
                                                  checksum_address=this_node.checksum_address)
             except Exception as e:

@@ -22,11 +22,13 @@ import tempfile
 from unittest import mock
 
 import maya
+from web3 import Web3
 
 from nucypher.blockchain.eth.actors import Staker
 from nucypher.blockchain.eth.agents import ContractAgency, StakingEscrowAgent
 from nucypher.blockchain.eth.constants import NULL_ADDRESS
 from nucypher.blockchain.eth.token import NU, Stake
+from nucypher.blockchain.eth.utils import prettify_eth_amount
 from nucypher.characters.lawful import Enrico, Ursula
 from nucypher.cli.literature import SUCCESSFUL_MINTING
 from nucypher.cli.main import nucypher_cli
@@ -284,6 +286,33 @@ def test_merge_stakes(click_runner,
     assert len(stakes) == stakes_length
     assert stakes[selection_1].locked_value == origin_stake_1.locked_value + origin_stake_2.locked_value
     assert stakes[selection_2].last_period == 1
+
+
+def test_remove_unused(click_runner,
+                       stakeholder_configuration_file_location,
+                       token_economics,
+                       testerchain,
+                       agency_local_registry,
+                       manual_staker,
+                       stake_value):
+
+    staking_agent = ContractAgency.get_agent(StakingEscrowAgent, registry=agency_local_registry)
+    original_stakes = list(staking_agent.get_all_stakes(staker_address=manual_staker))
+
+    selection = 2
+    assert original_stakes[selection].last_period == 1
+
+    stake_args = ('stake', 'remove-unused',
+                  '--config-file', stakeholder_configuration_file_location,
+                  '--staking-address', manual_staker,
+                  '--index', selection,
+                  '--force')
+    user_input = f'0\n' + f'{INSECURE_DEVELOPMENT_PASSWORD}\n' + YES_ENTER
+    result = click_runner.invoke(nucypher_cli, stake_args, input=user_input, catch_exceptions=False)
+    assert result.exit_code == 0
+
+    stakes = list(staking_agent.get_all_stakes(staker_address=manual_staker))
+    assert len(stakes) == len(original_stakes) - 1
 
 
 def test_stake_bond_worker(click_runner,
@@ -566,7 +595,8 @@ def test_collect_rewards_integration(click_runner,
                     rest_host='127.0.0.1',
                     rest_port=ursula_port,
                     network_middleware=MockRestMiddleware(),
-                    db_filepath=tempfile.mkdtemp())
+                    db_filepath=tempfile.mkdtemp(),
+                    domain=TEMPORARY_DOMAIN)
 
     MOCK_KNOWN_URSULAS_CACHE[ursula_port] = ursula
     assert ursula.worker_address == worker_address
@@ -752,8 +782,10 @@ def test_set_min_rate(click_runner,
     staker = Staker(is_me=True, checksum_address=manual_staker, registry=agency_local_registry)
     assert staker.raw_min_fee_rate == 0
 
+    min_rate_in_gwei = Web3.fromWei(min_rate, 'gwei')
+
     restake_args = ('stake', 'set-min-rate',
-                    '--min-rate', min_rate,
+                    '--min-rate', min_rate_in_gwei,
                     '--config-file', stakeholder_configuration_file_location,
                     '--staking-address', manual_staker,
                     '--force')
@@ -772,7 +804,7 @@ def test_set_min_rate(click_runner,
     user_input = INSECURE_DEVELOPMENT_PASSWORD
     result = click_runner.invoke(nucypher_cli, stake_args, input=user_input, catch_exceptions=False)
     assert result.exit_code == 0
-    assert f"{min_rate} wei" in result.output
+    assert f"{prettify_eth_amount(min_rate)}" in result.output
 
 
 def test_mint(click_runner,

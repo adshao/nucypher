@@ -14,7 +14,7 @@
  You should have received a copy of the GNU Affero General Public License
  along with nucypher.  If not, see <https://www.gnu.org/licenses/>.
 """
-
+from decimal import Decimal
 
 import click
 from web3 import Web3
@@ -73,7 +73,7 @@ from nucypher.cli.literature import (
     INSUFFICIENT_BALANCE_TO_CREATE, PROMPT_STAKE_CREATE_VALUE, PROMPT_STAKE_CREATE_LOCK_PERIODS,
     ONLY_DISPLAYING_MERGEABLE_STAKES_NOTE, CONFIRM_MERGE, SUCCESSFUL_STAKES_MERGE, SUCCESSFUL_ENABLE_SNAPSHOTS,
     SUCCESSFUL_DISABLE_SNAPSHOTS, CONFIRM_ENABLE_SNAPSHOTS,
-    CONFIRM_STAKE_USE_UNLOCKED)
+    CONFIRM_STAKE_USE_UNLOCKED, CONFIRM_REMOVE_SUBSTAKE, SUCCESSFUL_STAKE_REMOVAL)
 from nucypher.cli.options import (
     group_options,
     option_config_file,
@@ -87,8 +87,8 @@ from nucypher.cli.options import (
     option_provider_uri,
     option_registry_filepath,
     option_signer_uri,
-    option_staking_address
-)
+    option_staking_address,
+    option_gas_price)
 from nucypher.cli.painting.staking import (
     paint_min_rate, paint_staged_stake,
     paint_staged_stake_division,
@@ -101,10 +101,11 @@ from nucypher.cli.painting.transactions import paint_receipt_summary
 from nucypher.cli.types import (
     EIP55_CHECKSUM_ADDRESS,
     EXISTING_READABLE_FILE,
-    WEI
-)
+    GWEI,
+    DecimalRange)
 from nucypher.cli.utils import setup_emitter
 from nucypher.config.characters import StakeHolderConfiguration
+from nucypher.utilities.gas_strategies import construct_fixed_price_gas_strategy
 
 option_value = click.option('--value', help="Token value of stake", type=click.INT)
 option_lock_periods = click.option('--lock-periods', help="Duration of stake in periods.", type=click.INT)
@@ -222,11 +223,12 @@ class TransactingStakerOptions:
 
     __option_name__ = 'transacting_staker_options'
 
-    def __init__(self, staker_options: StakerOptions, hw_wallet, beneficiary_address, allocation_filepath):
+    def __init__(self, staker_options: StakerOptions, hw_wallet, beneficiary_address, allocation_filepath, gas_price):
         self.staker_options = staker_options
         self.hw_wallet = hw_wallet
         self.beneficiary_address = beneficiary_address
         self.allocation_filepath = allocation_filepath
+        self.gas_price = gas_price
 
     def create_character(self, emitter, config_file):
 
@@ -270,7 +272,11 @@ class TransactingStakerOptions:
         )
 
     def get_blockchain(self):
-        return self.staker_options.get_blockchain()
+        blockchain = self.staker_options.get_blockchain()
+        if self.gas_price:  # TODO: Consider performing this step in the init of EthereumClient
+            fixed_price_strategy = construct_fixed_price_gas_strategy(gas_price=self.gas_price, denomination="gwei")
+            blockchain.set_gas_strategy(fixed_price_strategy)
+        return blockchain
 
 
 group_transacting_staker_options = group_options(
@@ -279,6 +285,7 @@ group_transacting_staker_options = group_options(
     hw_wallet=option_hw_wallet,
     beneficiary_address=click.option('--beneficiary-address', help="Address of a pre-allocation beneficiary", type=EIP55_CHECKSUM_ADDRESS),
     allocation_filepath=click.option('--allocation-filepath', help="Path to individual allocation file", type=EXISTING_READABLE_FILE),
+    gas_price=option_gas_price,
 )
 
 
@@ -1068,6 +1075,61 @@ def merge(general_config: GroupGeneralConfig,
     paint_stakes(emitter=emitter, staker=STAKEHOLDER)
 
 
+@stake.command()
+@group_transacting_staker_options
+@option_config_file
+@option_force
+@group_general_config
+@click.option('--index', help="Index of unused stake to remove", type=click.INT)
+def remove_unused(general_config: GroupGeneralConfig,
+                  transacting_staker_options: TransactingStakerOptions,
+                  config_file, force, index):
+    """Remove unused stake."""
+
+    # Setup
+    emitter = setup_emitter(general_config)
+    STAKEHOLDER = transacting_staker_options.create_character(emitter, config_file)
+    action_period = STAKEHOLDER.staking_agent.get_current_period()
+    blockchain = transacting_staker_options.get_blockchain()
+
+    client_account, staking_address = select_client_account_for_staking(
+        emitter=emitter,
+        stakeholder=STAKEHOLDER,
+        staking_address=transacting_staker_options.staker_options.staking_address,
+        individual_allocation=STAKEHOLDER.individual_allocation,
+        force=force)
+
+    # Handle stake update and selection
+    if index is not None:  # 0 is valid.
+        current_stake = STAKEHOLDER.stakes[index]
+    else:
+        current_stake = select_stake(staker=STAKEHOLDER, emitter=emitter, stakes_status=Stake.Status.INACTIVE)
+
+    if not force:
+        click.confirm(CONFIRM_REMOVE_SUBSTAKE.format(stake_index=current_stake.index), abort=True)
+
+    # Authenticate
+    password = get_password(stakeholder=STAKEHOLDER,
+                            blockchain=blockchain,
+                            client_account=client_account,
+                            hw_wallet=transacting_staker_options.hw_wallet)
+    STAKEHOLDER.assimilate(password=password)
+
+    # Non-interactive: Consistency check to prevent the above agreement from going stale.
+    last_second_current_period = STAKEHOLDER.staking_agent.get_current_period()
+    if action_period != last_second_current_period:
+        emitter.echo(PERIOD_ADVANCED_WARNING, color='red')
+        raise click.Abort
+
+    # Execute
+    receipt = STAKEHOLDER.remove_unused_stake(stake=current_stake)
+
+    # Report
+    emitter.echo(SUCCESSFUL_STAKE_REMOVAL, color='green', verbosity=1)
+    paint_receipt_summary(emitter=emitter, receipt=receipt, chain_name=blockchain.client.chain_name)
+    paint_stakes(emitter=emitter, staker=STAKEHOLDER)
+
+
 @stake.command('collect-reward')
 @group_transacting_staker_options
 @option_config_file
@@ -1241,7 +1303,7 @@ def events(general_config, staker_options, config_file, event_name):
 @option_config_file
 @option_force
 @group_general_config
-@click.option('--min-rate', help="Minimum acceptable fee rate, set by staker", type=WEI)
+@click.option('--min-rate', help="Minimum acceptable fee rate (in GWEI), set by staker", type=GWEI)
 def set_min_rate(general_config: GroupGeneralConfig,
                  transacting_staker_options: TransactingStakerOptions,
                  config_file, force, min_rate):
@@ -1260,11 +1322,19 @@ def set_min_rate(general_config: GroupGeneralConfig,
         force=force)
 
     if not min_rate:
-        paint_min_rate(emitter, STAKEHOLDER.registry, STAKEHOLDER.policy_agent, staking_address)
-        # TODO check range
-        min_rate = click.prompt(PROMPT_STAKER_MIN_POLICY_RATE, type=WEI)
+        paint_min_rate(emitter, STAKEHOLDER)
+        minimum, _default, maximum = STAKEHOLDER.policy_agent.get_fee_rate_range()
+        lower_bound_in_gwei = Web3.fromWei(minimum, 'gwei')
+        upper_bound_in_gwei = Web3.fromWei(maximum, 'gwei')
+        min_rate = click.prompt(PROMPT_STAKER_MIN_POLICY_RATE, type=DecimalRange(min=lower_bound_in_gwei,
+                                                                                 max=upper_bound_in_gwei))
+
+    min_rate = int(Web3.toWei(Decimal(min_rate), 'gwei'))
+
     if not force:
-        click.confirm(CONFIRM_NEW_MIN_POLICY_RATE.format(min_rate=min_rate), abort=True)
+        min_rate_in_gwei = Web3.fromWei(min_rate, 'gwei')
+        click.confirm(CONFIRM_NEW_MIN_POLICY_RATE.format(min_rate=min_rate_in_gwei), abort=True)
+
     password = get_password(stakeholder=STAKEHOLDER,
                             blockchain=blockchain,
                             client_account=client_account,

@@ -22,7 +22,7 @@ import sys
 import time
 import traceback
 from decimal import Decimal
-from typing import Callable
+from typing import Callable, Union
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import click
@@ -31,6 +31,7 @@ from constant_sorrow.constants import FULL, WORKER_NOT_RUNNING
 from eth_tester.exceptions import TransactionFailed as TestTransactionFailed
 from eth_typing import ChecksumAddress
 from eth_utils import to_canonical_address, to_checksum_address
+from hexbytes import HexBytes
 from web3 import Web3
 from web3.exceptions import ValidationError
 from web3.types import TxReceipt
@@ -1275,6 +1276,32 @@ class Staker(NucypherTokenActor):
         receipt = self._set_snapshots(value=False)
         return receipt
 
+    @only_me
+    @save_receipt
+    def remove_unused_stake(self, stake: Stake) -> TxReceipt:
+        self._ensure_stake_exists(stake)
+
+        # Read on-chain stake and validate
+        stake.sync()
+        if not stake.status().is_child(Stake.Status.INACTIVE):
+            raise ValueError(f"Stake with index {stake.index} is still active")
+
+        receipt = self._remove_unused_stake(stake_index=stake.index)
+
+        # Update staking cache element
+        self.refresh_stakes()
+        return receipt
+
+    @only_me
+    @save_receipt
+    def _remove_unused_stake(self, stake_index: int) -> TxReceipt:
+        # TODO #1497 #1358
+        # if self.is_contract:
+        # else:
+        receipt = self.staking_agent.remove_unused_stake(staker_address=self.checksum_address,
+                                                         stake_index=stake_index)
+        return receipt
+
     def non_withdrawable_stake(self) -> NU:
         staked_amount: NuNits = self.staking_agent.non_withdrawable_stake(staker_address=self.checksum_address)
         return NU.from_nunits(staked_amount)
@@ -1606,7 +1633,7 @@ class Worker(NucypherTokenActor):
 
     @only_me
     @save_receipt  # saves txhash instead of receipt if `fire_and_forget` is True
-    def commit_to_next_period(self, fire_and_forget: bool = True) -> TxReceipt:
+    def commit_to_next_period(self, fire_and_forget: bool = True) -> Union[TxReceipt, HexBytes]:
         """For each period that the worker makes a commitment, the staker is rewarded"""
         txhash_or_receipt = self.staking_agent.commit_to_next_period(worker_address=self.__worker_address,
                                                                      fire_and_forget=fire_and_forget)
