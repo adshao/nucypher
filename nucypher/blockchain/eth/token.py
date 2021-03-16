@@ -652,7 +652,7 @@ class WorkTracker:
         for tx_firing_block_number, txhash in sorted(pending_transactions):
             try:
                 confirmed_tx_receipt = self.client.get_transaction_receipt(transaction_hash=txhash)
-            except TransactionNotFound:
+            except (TransactionNotFound, AttributeError): # AttributeError is workaround for unhandled error
                 unmined_transactions.append(txhash)  # mark as unmined - Keep tracking it for now
                 continue
             else:
