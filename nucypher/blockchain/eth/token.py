@@ -732,7 +732,10 @@ class WorkTracker:
         # Commitment tracking
         unmined_transactions = self.__track_pending_commitments()
         if unmined_transactions:
-            self.__handle_replacement_commitment(current_block_number=current_block_number)
+            try:
+                self.__handle_replacement_commitment(current_block_number=current_block_number)
+            except ValueError as e:
+                self.log.warn(f"FAILED TO FIRE REPLACEMENT COMMITMENT: {e}")
             # while there are known pending transactions, remain in fast interval mode
             self._tracking_task.interval = self.INTERVAL_FLOOR
             return  # This cycle is finished.
